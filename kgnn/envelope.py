@@ -6,9 +6,9 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from diagnostic.sourceonly import infer_logits_embeddings
-from kgnn import PerturbationEngine
+from kgnn.phantom import PerturbationEngine
 
-from .perturbation_classifier import PerturbationSpec, apply_perturbation_one
+from .perturbation import PerturbationSpec, apply_perturbation_one
 
 
 @dataclass

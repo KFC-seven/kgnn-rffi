@@ -185,7 +185,7 @@ def _dedupe_monotone_curve(fpr: np.ndarray, ccr: np.ndarray) -> OscrCurve:
 def _area_under_curve(x: np.ndarray, y: np.ndarray) -> float:
     if x.size < 2:
         return 0.0
-    return float(np.trapezoid(y, x))
+    return float(np.trapz(y, x))
 
 
 def _fpr_at_ccr(curve: OscrCurve, target_ccr: float) -> float:

@@ -1,7 +1,7 @@
 {
   "dataset": {
     "name": "ManyTx-OWEN-v0",
-    "path": "D:/Program/MW-RFF/ManyTx.pkl/ManyTx.pkl"
+    "path": "E:/program/ManyTx.pkl/ManyTx.pkl"
   },
   "dates": {
     "source": "2021_03_15",

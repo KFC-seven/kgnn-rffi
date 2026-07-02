@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from diagnostic.sourceonly import infer_logits_embeddings
-from kgnn import PerturbationEngine
+from kgnn.phantom import PerturbationEngine
 
 
 @dataclass(frozen=True)
