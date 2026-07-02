@@ -27,8 +27,8 @@ Reproduce the main KGNN-RFFI result on a single ManyTx protocol:
 ```bash
 python scripts/run.py \
   --run "demo|configs/manytx_owen_v0.yaml|MTX_RX9-3_TX20-20|1|resnet1d|5|30|128" \
-  --enable-v51-variants \
-  --v51-envelope-only-sensitivity \
+  --enable-kgnn \
+  --sce-sensitivity \
   --output-dir results/demo
 ```
 
@@ -36,10 +36,10 @@ Key hyperparameters and their defaults:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--v51-envelope-quantile` | 0.90 | SCE source quantile $q$ |
-| `--v51-envelope-max-mult` | 1.75 | SCE expansion factor $\lambda$ |
-| `--v51-alpha-low` | 0.50 | Gate weight $w_{\mathrm{low}}$ (inside envelope) |
-| `--v51-alpha-high` | 0.95 | Gate weight $w_{\mathrm{high}}$ (outside envelope) |
+| `--sce-quantile` | 0.90 | SCE source quantile $q$ |
+| `--sce-max-mult` | 1.75 | SCE expansion factor $\lambda$ |
+| `--sce-weight-low` | 0.50 | Gate weight $w_{\mathrm{low}}$ (inside envelope) |
+| `--sce-weight-high` | 0.95 | Gate weight $w_{\mathrm{high}}$ (outside envelope) |
 | `--source-frr` | 0.03 | Source-validation false-rejection budget $\rho_s$ |
 | `--safe-accuracy` | 0.90 | Perturbation safety screening threshold |
 | `--destructive-accuracy` | 0.50 | Perturbation destructive screening threshold |
@@ -72,7 +72,7 @@ kgnn-rffi/
 │   ├── config.py            # YAML config loading
 │   └── osr.py               # Threshold-based rejection
 ├── scripts/
-│   ├── run.py               # Main experiment runner (V51 adaptive IP-GATE-NN-ID)
+│   ├── run.py               # Main experiment runner (KGNN-RFFI with SCE gate)
 │   └── build_assets.py      # Table/figure builder from result CSVs
 ├── configs/
 │   ├── manysig_soda4.yaml   # ManySig dataset config (6 TX, 12 RX)
@@ -96,7 +96,7 @@ For each enrolled device class $c$, a source class envelope is defined by a cent
 
 ### Adaptive Score Composition
 
-The final unknownness score combines the standardized IP-GATE score $\tilde{u}_{\mathrm{p}}$ and the standardized kNN distance score $\tilde{u}_{\mathrm{nn}}$:
+The final unknownness score combines the standardized source-calibrated rejection score $\tilde{u}_{\mathrm{p}}$ and the standardized kNN distance score $\tilde{u}_{\mathrm{nn}}$:
 $$s_U(\mathbf{x}) = w_{\mathrm{p}}(\mathbf{x}) \tilde{u}_{\mathrm{p}}(\mathbf{x}) + (1 - w_{\mathrm{p}}(\mathbf{x})) \tilde{u}_{\mathrm{nn}}(\mathbf{x})$$
 where $w_{\mathrm{p}}(\mathbf{x}) = w_{\mathrm{high}} - (w_{\mathrm{high}} - w_{\mathrm{low}}) g_{\mathrm{env}}(\mathbf{x})$.
 
@@ -108,10 +108,10 @@ Samples with $s_U(\mathbf{x}) > \theta_s$ are rejected as unknown. Accepted samp
 
 The full 33-run evaluation (12 ManySig + 21 ManyTx runs across 11 protocols × 3 splits) requires substantial compute. The experiment runner `scripts/run.py` supports:
 
-- `--enable-v51-variants`: Run KGNN-RFFI (V51 class-envelope-only adaptive)
-- `--v51-envelope-only-sensitivity`: Run envelope-only q/λ sensitivity
-- `--enable-v51-component-ablations`: Run component ablation variants
-- `--enable-v50-variants`: Run V50 fixed-blend variants
+- `--enable-kgnn`: Run KGNN-RFFI (class-envelope-only adaptive gate)
+- `--sce-sensitivity`: Run envelope-only q/λ sensitivity sweep
+- `--enable-kgnn-ablations`: Run component ablation variants
+- `--enable-kgnn-sensitivity`: Run full parameter sensitivity grid
 
 ### Baseline Methods
 
