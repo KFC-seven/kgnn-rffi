@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.npz
+*.pth
+.DS_Store
+results/*/
+!results/.gitkeep
