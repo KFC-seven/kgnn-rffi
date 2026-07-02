@@ -12,7 +12,7 @@ from .perturbation_classifier import PerturbationSpec, apply_perturbation_one
 
 
 @dataclass
-class IpGateModel:
+class KgnnModel:
     distance: str
     score_mode: str
     threshold: float
@@ -37,7 +37,7 @@ class IpGateModel:
     calibration_global_scale: float = 1.0
 
 
-def build_ip_gate_model(
+def build_kgnn_model(
     encoder,
     source_x: np.ndarray,
     source_labels: np.ndarray,
@@ -67,7 +67,7 @@ def build_ip_gate_model(
     frr: float = 0.05,
     gate_support: bool = True,
     seed: int = 0,
-) -> tuple[IpGateModel, dict]:
+) -> tuple[KgnnModel, dict]:
     if distance not in {"euclidean", "cosine"}:
         raise ValueError(f"Unknown distance={distance!r}.")
     if score_mode not in {"ratio", "known", "class_norm_ratio", "knn_ratio", "balanced_destructive_ratio"}:
@@ -148,7 +148,7 @@ def build_ip_gate_model(
             metric=distance,
         )
         nearest_destructive.fit(destructive_embeddings)
-    model = IpGateModel(
+    model = KgnnModel(
         distance=distance,
         score_mode=score_mode,
         threshold=0.0,
@@ -206,7 +206,7 @@ def build_ip_gate_model(
     return model, info
 
 
-def predict_ip_gate(model: IpGateModel, embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def predict_kgnn(model: KgnnModel, embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     scores, pred = _score_embeddings(model, embeddings)
     rejected = scores > float(model.threshold)
     return pred.astype(np.int64), rejected.astype(bool), scores.astype(np.float32)
@@ -251,7 +251,7 @@ def calibrate_threshold(scores: np.ndarray, frr: float) -> float:
     return _calibrate_threshold(scores, frr=frr)
 
 
-def _score_embeddings(model: IpGateModel, embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _score_embeddings(model: KgnnModel, embeddings: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     known_dist, idx = model.nearest_support.kneighbors(
         np.asarray(embeddings, dtype=np.float32),
         n_neighbors=_effective_neighbors(model.nearest_support, model.support_k),
@@ -274,7 +274,7 @@ def _score_embeddings(model: IpGateModel, embeddings: np.ndarray) -> tuple[np.nd
     return scores.astype(np.float32), pred
 
 
-def _apply_score_calibration(model: IpGateModel, scores: np.ndarray, pred: np.ndarray) -> np.ndarray:
+def _apply_score_calibration(model: KgnnModel, scores: np.ndarray, pred: np.ndarray) -> np.ndarray:
     mode = getattr(model, "score_calibration", "none")
     values = np.asarray(scores, dtype=np.float32)
     if mode == "none":

@@ -24,14 +24,14 @@ from diagnostic.sourceonly import infer_logits_embeddings, train_sourceonly
 from diagnostic.splits import build_manifest, build_split_records
 from kgnn.baselines.posthoc import knn_unknown_score
 from kgnn import (
-    build_ip_gate_model,
+    build_kgnn_model,
     classify_perturbation_safety,
     default_perturbation_specs,
-    predict_ip_gate,
+    predict_kgnn,
     select_specs,
 )
 from kgnn.envelope import (
-    IpGateModel,
+    KgnnModel,
     calibrate_threshold,
     distance_matrix,
     prototype_scores,
@@ -60,7 +60,7 @@ BASE_FRR = 0.03
 FRR_GRID = [0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10]
 AUX_METHODS = ["prototype_euclidean", "knn_cosine_k5", "knn_euclidean_k20"]
 ALPHA_GRID = [0.25, 0.50, 0.75, 0.90]
-IP_GATE_SUPPORT1_ID_KEY = "ip_gate_v41_support1_id"
+KGNN_SUPPORT_ID_KEY = "kgnn_rejection_support_id"
 
 
 def _parse_run(text: str) -> dict:
@@ -113,25 +113,25 @@ def main() -> int:
     parser.add_argument("--v50-alpha-grid", default="0.50,0.75,0.90")
     parser.add_argument("--v50-reliability-alpha-low", type=float, default=0.50)
     parser.add_argument("--v50-reliability-alpha-high", type=float, default=0.90)
-    parser.add_argument("--enable-v51-variants", action="store_true")
-    parser.add_argument("--v51-alpha-grid", default="0.50,0.75,0.90,0.95")
-    parser.add_argument("--v51-alpha-low", type=float, default=0.50)
-    parser.add_argument("--v51-alpha-high", type=float, default=0.95)
-    parser.add_argument("--v51-switch-threshold", type=float, default=0.55)
-    parser.add_argument("--v51-envelope-quantile", type=float, default=0.90)
-    parser.add_argument("--v51-envelope-max-mult", type=float, default=1.75)
-    parser.add_argument("--v51-ip-z-low", type=float, default=0.0)
-    parser.add_argument("--v51-ip-z-high", type=float, default=1.0)
-    parser.add_argument("--enable-v51-component-ablations", action="store_true")
-    parser.add_argument("--enable-v51-sensitivity-grid", action="store_true")
-    parser.add_argument("--v51-envelope-only-sensitivity", action="store_true")
-    parser.add_argument("--v51-envelope-quantile-grid", default="0.80,0.85,0.90,0.95,0.975")
-    parser.add_argument("--v51-envelope-max-mult-grid", default="1.25,1.50,1.75,2.00")
-    parser.add_argument("--v51-alpha-pair-grid", default="0.50:0.90,0.50:0.95,0.50:1.00,0.60:0.95,0.40:0.95")
-    parser.add_argument("--v51-knn-sensitivity-grid", default="cosine:3,cosine:5,cosine:10,euclidean:5,euclidean:20")
-    parser.add_argument("--v51-source-frr-grid", default="0.01,0.02,0.03,0.05")
-    parser.add_argument("--v51-ip-guard-grid", default="0.0:1.0,0.0:1.5,-0.5:1.0")
-    parser.add_argument("--v51-switch-threshold-grid", default="0.45,0.55,0.65")
+    parser.add_argument("--enable-kgnn", action="store_true")
+    parser.add_argument("--sce-weight-grid", default="0.50,0.75,0.90,0.95")
+    parser.add_argument("--sce-weight-low", type=float, default=0.50)
+    parser.add_argument("--sce-weight-high", type=float, default=0.95)
+    parser.add_argument("--sce-switch-threshold", type=float, default=0.55)
+    parser.add_argument("--sce-quantile", type=float, default=0.90)
+    parser.add_argument("--sce-max-mult", type=float, default=1.75)
+    parser.add_argument("--sce-ip-z-low", type=float, default=0.0)
+    parser.add_argument("--sce-ip-z-high", type=float, default=1.0)
+    parser.add_argument("--enable-kgnn-ablations", action="store_true")
+    parser.add_argument("--enable-kgnn-sensitivity", action="store_true")
+    parser.add_argument("--sce-sensitivity", action="store_true")
+    parser.add_argument("--sce-quantile-grid", default="0.80,0.85,0.90,0.95,0.975")
+    parser.add_argument("--sce-max-mult-grid", default="1.25,1.50,1.75,2.00")
+    parser.add_argument("--sce-weight-pair-grid", default="0.50:0.90,0.50:0.95,0.50:1.00,0.60:0.95,0.40:0.95")
+    parser.add_argument("--kgnn-knn-sensitivity-grid", default="cosine:3,cosine:5,cosine:10,euclidean:5,euclidean:20")
+    parser.add_argument("--kgnn-source-frr-grid", default="0.01,0.02,0.03,0.05")
+    parser.add_argument("--sce-ip-guard-grid", default="0.0:1.0,0.0:1.5,-0.5:1.0")
+    parser.add_argument("--sce-switch-threshold-grid", default="0.45,0.55,0.65")
     parser.add_argument("--knn-k-list", default="5,20")
     parser.add_argument("--knn-metrics", default="cosine,euclidean")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
@@ -145,15 +145,15 @@ def main() -> int:
     frr_grid = _parse_float_list(args.frr_grid)
     aux_methods = _parse_str_list(args.aux_methods)
     alpha_grid = _parse_float_list(args.alpha_grid)
-    v50_alpha_grid = _parse_float_list(args.v50_alpha_grid)
-    v51_alpha_grid = _parse_float_list(args.v51_alpha_grid)
-    v51_envelope_quantile_grid = _parse_float_list(args.v51_envelope_quantile_grid)
-    v51_envelope_max_mult_grid = _parse_float_list(args.v51_envelope_max_mult_grid)
-    v51_alpha_pair_grid = _parse_float_pairs(args.v51_alpha_pair_grid)
-    v51_knn_sensitivity_grid = _parse_knn_specs(args.v51_knn_sensitivity_grid)
-    v51_source_frr_grid = _parse_float_list(args.v51_source_frr_grid)
-    v51_ip_guard_grid = _parse_float_pairs(args.v51_ip_guard_grid)
-    v51_switch_threshold_grid = _parse_float_list(args.v51_switch_threshold_grid)
+    kgnn_v50_weight_grid = _parse_float_list(args.kgnn_v50_weight_grid)
+    sce_weight_grid = _parse_float_list(args.sce_weight_grid)
+    sce_quantile_grid = _parse_float_list(args.sce_quantile_grid)
+    sce_max_mult_grid = _parse_float_list(args.sce_max_mult_grid)
+    sce_weight_pair_grid = _parse_float_pairs(args.sce_weight_pair_grid)
+    kgnn_knn_sensitivity_grid = _parse_knn_specs(args.kgnn_knn_sensitivity_grid)
+    kgnn_source_frr_grid = _parse_float_list(args.kgnn_source_frr_grid)
+    sce_ip_guard_grid = _parse_float_pairs(args.sce_ip_guard_grid)
+    sce_switch_threshold_grid = _parse_float_list(args.sce_switch_threshold_grid)
     knn_k_list = _parse_int_list(args.knn_k_list)
     knn_metrics = _parse_str_list(args.knn_metrics)
 
@@ -168,8 +168,8 @@ def main() -> int:
     threshold_rows: list[dict] = []
     blend_rows: list[dict] = []
     id_head_rows: list[dict] = []
-    v50_rows: list[dict] = []
-    v51_rows: list[dict] = []
+    kgnn_v50_rows: list[dict] = []
+    kgnn_rows: list[dict] = []
     selector_rows: list[dict] = []
     cache_manifest: list[dict] = []
     run_payloads: list[dict] = []
@@ -188,15 +188,15 @@ def main() -> int:
             frr_grid=frr_grid,
             aux_methods=aux_methods,
             alpha_grid=alpha_grid,
-            v50_alpha_grid=v50_alpha_grid,
-            v51_alpha_grid=v51_alpha_grid,
-            v51_envelope_quantile_grid=v51_envelope_quantile_grid,
-            v51_envelope_max_mult_grid=v51_envelope_max_mult_grid,
-            v51_alpha_pair_grid=v51_alpha_pair_grid,
-            v51_knn_sensitivity_grid=v51_knn_sensitivity_grid,
-            v51_source_frr_grid=v51_source_frr_grid,
-            v51_ip_guard_grid=v51_ip_guard_grid,
-            v51_switch_threshold_grid=v51_switch_threshold_grid,
+            kgnn_v50_weight_grid=kgnn_v50_weight_grid,
+            sce_weight_grid=sce_weight_grid,
+            sce_quantile_grid=sce_quantile_grid,
+            sce_max_mult_grid=sce_max_mult_grid,
+            sce_weight_pair_grid=sce_weight_pair_grid,
+            kgnn_knn_sensitivity_grid=kgnn_knn_sensitivity_grid,
+            kgnn_source_frr_grid=kgnn_source_frr_grid,
+            sce_ip_guard_grid=sce_ip_guard_grid,
+            sce_switch_threshold_grid=sce_switch_threshold_grid,
             knn_k_list=knn_k_list,
             knn_metrics=knn_metrics,
         )
@@ -205,12 +205,12 @@ def main() -> int:
         threshold_rows.extend(payload["threshold_rows"])
         blend_rows.extend(payload["blend_rows"])
         id_head_rows.extend(payload["id_head_rows"])
-        v50_rows.extend(payload["v50_rows"])
-        v51_rows.extend(payload["v51_rows"])
+        kgnn_v50_rows.extend(payload["kgnn_v50_rows"])
+        kgnn_rows.extend(payload["kgnn_rows"])
         selector_rows.extend(payload["selector_rows"])
         cache_manifest.append(payload["cache_manifest"])
 
-    all_rows = metric_rows + threshold_rows + blend_rows + id_head_rows + v50_rows + v51_rows
+    all_rows = metric_rows + threshold_rows + blend_rows + id_head_rows + kgnn_v50_rows + kgnn_rows
     summary = _summarize(all_rows)
     gate_summary = _gate_summary(summary)
     threshold_gate = _threshold_gate_summary(summary)
@@ -222,8 +222,8 @@ def main() -> int:
     _write_csv(output_dir / "m1_threshold_grid.csv", threshold_rows)
     _write_csv(output_dir / "m2_blend_dev.csv", blend_rows)
     _write_csv(output_dir / "m3_id_head_swap.csv", id_head_rows)
-    _write_csv(output_dir / "v50_blend_nnid_rows.csv", v50_rows)
-    _write_csv(output_dir / "v51_adaptive_nnid_rows.csv", v51_rows)
+    _write_csv(output_dir / "v50_blend_nnid_rows.csv", kgnn_v50_rows)
+    _write_csv(output_dir / "kgnn_adaptive_rows.csv", kgnn_rows)
     _write_csv(output_dir / "source_selector.csv", selector_rows)
     _write_csv(output_dir / "summary.csv", summary)
     _write_csv(output_dir / "gate_summary.csv", gate_summary)
@@ -244,8 +244,8 @@ def main() -> int:
                 "source_selector_summary": selector_summary,
                 "refined_selector_summary": refined_selector_summary,
                 "id_head_swap_rows": id_head_rows,
-                "v50_blend_nnid_rows": v50_rows,
-                "v51_adaptive_nnid_rows": v51_rows,
+                "v50_blend_nnid_rows": kgnn_v50_rows,
+                "kgnn_adaptive_rows": kgnn_rows,
                 "score_cache_manifest": cache_manifest,
             },
             indent=2,
@@ -278,15 +278,15 @@ def _run_one(
     frr_grid: list[float],
     aux_methods: list[str],
     alpha_grid: list[float],
-    v50_alpha_grid: list[float],
-    v51_alpha_grid: list[float],
-    v51_envelope_quantile_grid: list[float],
-    v51_envelope_max_mult_grid: list[float],
-    v51_alpha_pair_grid: list[tuple[float, float]],
-    v51_knn_sensitivity_grid: list[tuple[str, int]],
-    v51_source_frr_grid: list[float],
-    v51_ip_guard_grid: list[tuple[float, float]],
-    v51_switch_threshold_grid: list[float],
+    kgnn_v50_weight_grid: list[float],
+    sce_weight_grid: list[float],
+    sce_quantile_grid: list[float],
+    sce_max_mult_grid: list[float],
+    sce_weight_pair_grid: list[tuple[float, float]],
+    kgnn_knn_sensitivity_grid: list[tuple[str, int]],
+    kgnn_source_frr_grid: list[float],
+    sce_ip_guard_grid: list[tuple[float, float]],
+    sce_switch_threshold_grid: list[float],
     knn_k_list: list[int],
     knn_metrics: list[str],
 ) -> dict:
@@ -378,7 +378,7 @@ def _run_one(
     )
     safe_specs = select_specs(safety_results, "safe")
     destructive_specs = select_specs(safety_results, "destructive")
-    ip_model, ip_info = build_ip_gate_model(
+    kgnn_model, ip_info = build_kgnn_model(
         encoder=train_result.model,
         source_x=source.x,
         source_labels=source.known_label,
@@ -408,8 +408,8 @@ def _run_one(
     )
 
     val_embeddings = source_embeddings[val_idx]
-    ip_val_support_pred, _ip_val_rej, ip_val_score = predict_ip_gate(ip_model, val_embeddings)
-    ip_eval_support_pred, _ip_eval_rej, ip_eval_score = predict_ip_gate(ip_model, eval_embeddings)
+    ip_val_support_pred, _ip_val_rej, ip_val_score = predict_kgnn(kgnn_model, val_embeddings)
+    ip_eval_support_pred, _ip_eval_rej, ip_eval_score = predict_kgnn(kgnn_model, eval_embeddings)
     logit_val_pred = np.argmax(source_logits[val_idx], axis=1).astype(np.int64)
     logit_eval_pred = np.argmax(eval_logits, axis=1).astype(np.int64)
 
@@ -432,8 +432,8 @@ def _run_one(
     deploy_score_bank = {
         name: payload
         for name, payload in score_bank.items()
-        # This M3-ID entry shares IP-GATE v4.1 scores and changes only predicted_label.
-        if name != IP_GATE_SUPPORT1_ID_KEY
+        # This M3-ID entry shares KGNN v4.1 scores and changes only predicted_label.
+        if name != KGNN_SUPPORT_ID_KEY
     }
     common = {
         "run_id": spec["run_id"],
@@ -460,9 +460,9 @@ def _run_one(
         "device": device,
         "safe_regimes": int(len(safe_specs)),
         "destructive_regimes": int(len(destructive_specs)),
-        "destructive_bank_size": int(ip_model.destructive_embeddings.shape[0]),
-        "support_samples": int(ip_model.support_embeddings.shape[0]),
-        "ip_gate_threshold_v41": float(ip_model.threshold),
+        "destructive_bank_size": int(kgnn_model.destructive_embeddings.shape[0]),
+        "support_samples": int(kgnn_model.support_embeddings.shape[0]),
+        "ip_gate_threshold_v41": float(kgnn_model.threshold),
         "ip_gate_info_threshold": float(ip_info.get("threshold", 0.0)),
         "deployable": True,
         "uses_target_labels": False,
@@ -487,9 +487,9 @@ def _run_one(
             common,
             stage="M1",
             method=f"ip_gate_v41_source_frr_{_frr_tag(frr)}",
-            val_score=score_bank["ip_gate_v41"]["val_score"],
-            eval_score=score_bank["ip_gate_v41"]["eval_score"],
-            pred=score_bank["ip_gate_v41"]["eval_pred"],
+            val_score=score_bank["kgnn_rejection"]["val_score"],
+            eval_score=score_bank["kgnn_rejection"]["eval_score"],
+            pred=score_bank["kgnn_rejection"]["eval_pred"],
             eval_batch=eval_batch,
             source_frr=frr,
             family="threshold_sweep",
@@ -515,7 +515,7 @@ def _run_one(
             )
         )
     id_head_rows = []
-    for method, payload in _ip_gate_id_head_bank(score_bank).items():
+    for method, payload in _kgnn_id_head_bank(score_bank).items():
         id_head_rows.append(
             _score_metric_row(
                 common,
@@ -530,22 +530,22 @@ def _run_one(
                 aux_method=payload["aux_method"],
             )
         )
-    v50_rows = []
+    kgnn_v50_rows = []
     if bool(getattr(args, "enable_v50_variants", False)):
-        for method, payload in _v50_blend_nnid_bank(
+        for method, payload in _kgnn_v50_blend_bank(
             score_bank,
             train_embeddings=source_embeddings[train_idx],
             train_labels=source.known_label[train_idx],
             val_embeddings=val_embeddings,
             eval_embeddings=eval_embeddings,
-            alpha_grid=v50_alpha_grid,
+            alpha_grid=kgnn_v50_weight_grid,
             reliability_alpha_low=float(args.v50_reliability_alpha_low),
             reliability_alpha_high=float(args.v50_reliability_alpha_high),
         ).items():
-            v50_rows.append(
+            kgnn_v50_rows.append(
                 _score_metric_row(
                     common,
-                    stage="V50",
+                    stage="KGNN-V50",
                     method=method,
                     val_score=payload["val_score"],
                     eval_score=payload["eval_score"],
@@ -557,11 +557,11 @@ def _run_one(
                     aux_method=payload.get("aux_method", ""),
                 )
             )
-    v51_rows = []
+    kgnn_rows = []
     if bool(getattr(args, "enable_v51_variants", False)):
-        for method, payload in _v51_adaptive_nnid_bank(
+        for method, payload in _kgnn_adaptive_bank(
             score_bank,
-            ip_model=ip_model,
+            kgnn_model=kgnn_model,
             source_embeddings=source_embeddings,
             source_labels=source.known_label,
             train_idx=train_idx,
@@ -571,30 +571,30 @@ def _run_one(
             train_labels=source.known_label[train_idx],
             val_embeddings=val_embeddings,
             eval_embeddings=eval_embeddings,
-            alpha_grid=v51_alpha_grid,
-            alpha_low=float(args.v51_alpha_low),
-            alpha_high=float(args.v51_alpha_high),
-            switch_threshold=float(args.v51_switch_threshold),
-            envelope_quantile=float(args.v51_envelope_quantile),
-            envelope_max_mult=float(args.v51_envelope_max_mult),
-            ip_z_low=float(args.v51_ip_z_low),
-            ip_z_high=float(args.v51_ip_z_high),
+            alpha_grid=sce_weight_grid,
+            alpha_low=float(args.sce_weight_low),
+            alpha_high=float(args.sce_weight_high),
+            switch_threshold=float(args.sce_switch_threshold),
+            envelope_quantile=float(args.sce_quantile),
+            envelope_max_mult=float(args.sce_max_mult),
+            ip_z_low=float(args.sce_ip_z_low),
+            ip_z_high=float(args.sce_ip_z_high),
             source_frr=float(args.source_frr),
             component_ablations=bool(getattr(args, "enable_v51_component_ablations", False)),
             sensitivity_grid=bool(getattr(args, "enable_v51_sensitivity_grid", False)),
-            envelope_only_sensitivity=bool(getattr(args, "v51_envelope_only_sensitivity", False)),
-            envelope_quantile_grid=v51_envelope_quantile_grid,
-            envelope_max_mult_grid=v51_envelope_max_mult_grid,
-            alpha_pair_grid=v51_alpha_pair_grid,
-            knn_sensitivity_grid=v51_knn_sensitivity_grid,
-            source_frr_grid=v51_source_frr_grid,
-            ip_guard_grid=v51_ip_guard_grid,
-            switch_threshold_grid=v51_switch_threshold_grid,
+            envelope_only_sensitivity=bool(getattr(args, "sce_sensitivity", False)),
+            envelope_quantile_grid=sce_quantile_grid,
+            envelope_max_mult_grid=sce_max_mult_grid,
+            alpha_pair_grid=sce_weight_pair_grid,
+            knn_sensitivity_grid=kgnn_knn_sensitivity_grid,
+            source_frr_grid=kgnn_source_frr_grid,
+            ip_guard_grid=sce_ip_guard_grid,
+            switch_threshold_grid=sce_switch_threshold_grid,
         ).items():
             row_source_frr = float(payload.get("source_frr", args.source_frr))
             row = _score_metric_row(
                 common,
-                stage="V51",
+                stage="KGNN",
                 method=method,
                 val_score=payload["val_score"],
                 eval_score=payload["eval_score"],
@@ -611,28 +611,28 @@ def _run_one(
                 "selected_alpha",
                 "source_selector_objective",
                 "source_selector_metric",
-                "v51_variant_role",
-                "v51_sensitivity_axis",
-                "v51_envelope_quantile",
-                "v51_envelope_max_mult",
-                "v51_alpha_low",
-                "v51_alpha_high",
-                "v51_knn_metric",
-                "v51_knn_k",
-                "v51_source_frr",
+                "kgnn_variant_role",
+                "kgnn_sensitivity_axis",
+                "sce_quantile",
+                "sce_max_mult",
+                "sce_weight_low",
+                "sce_weight_high",
+                "kgnn_knn_metric",
+                "kgnn_knn_k",
+                "kgnn_source_frr",
                 "v51_ip_z_low",
                 "v51_ip_z_high",
                 "v51_switch_threshold",
-                "v51_id_head",
+                "kgnn_id_head",
             ]:
                 if extra_key in payload:
                     row[extra_key] = payload[extra_key]
-            v51_rows.append(row)
+            kgnn_rows.append(row)
 
     selector_rows = _source_selector_rows(
         common=common,
         score_bank={**deploy_score_bank, **blend_payloads},
-        ip_model=ip_model,
+        kgnn_model=kgnn_model,
         source_embeddings=source_embeddings,
         source_labels=source.known_label,
         train_idx=train_idx,
@@ -658,32 +658,32 @@ def _run_one(
         "frr_grid": frr_grid,
         "aux_methods": aux_methods,
         "alpha_grid": alpha_grid,
-        "v50_enabled": bool(getattr(args, "enable_v50_variants", False)),
-        "v50_alpha_grid": v50_alpha_grid,
+        "kgnn_v50_enabled": bool(getattr(args, "enable_v50_variants", False)),
+        "kgnn_v50_weight_grid": kgnn_v50_weight_grid,
         "v50_reliability_alpha_low": float(args.v50_reliability_alpha_low),
         "v50_reliability_alpha_high": float(args.v50_reliability_alpha_high),
-        "v51_enabled": bool(getattr(args, "enable_v51_variants", False)),
-        "v51_alpha_grid": v51_alpha_grid,
-        "v51_alpha_low": float(args.v51_alpha_low),
-        "v51_alpha_high": float(args.v51_alpha_high),
-        "v51_switch_threshold": float(args.v51_switch_threshold),
-        "v51_envelope_quantile": float(args.v51_envelope_quantile),
-        "v51_envelope_max_mult": float(args.v51_envelope_max_mult),
-        "v51_component_ablations": bool(getattr(args, "enable_v51_component_ablations", False)),
-        "v51_sensitivity_grid": bool(getattr(args, "enable_v51_sensitivity_grid", False)),
-        "v51_envelope_only_sensitivity": bool(getattr(args, "v51_envelope_only_sensitivity", False)),
-        "v51_envelope_quantile_grid": v51_envelope_quantile_grid,
-        "v51_envelope_max_mult_grid": v51_envelope_max_mult_grid,
-        "v51_alpha_pair_grid": v51_alpha_pair_grid,
-        "v51_knn_sensitivity_grid": v51_knn_sensitivity_grid,
-        "v51_source_frr_grid": v51_source_frr_grid,
-        "v51_ip_guard_grid": v51_ip_guard_grid,
-        "v51_switch_threshold_grid": v51_switch_threshold_grid,
+        "kgnn_enabled": bool(getattr(args, "enable_v51_variants", False)),
+        "sce_weight_grid": sce_weight_grid,
+        "sce_weight_low": float(args.sce_weight_low),
+        "sce_weight_high": float(args.sce_weight_high),
+        "v51_switch_threshold": float(args.sce_switch_threshold),
+        "sce_quantile": float(args.sce_quantile),
+        "sce_max_mult": float(args.sce_max_mult),
+        "kgnn_ablations": bool(getattr(args, "enable_v51_component_ablations", False)),
+        "kgnn_sensitivity": bool(getattr(args, "enable_v51_sensitivity_grid", False)),
+        "sce_sensitivity": bool(getattr(args, "sce_sensitivity", False)),
+        "sce_quantile_grid": sce_quantile_grid,
+        "sce_max_mult_grid": sce_max_mult_grid,
+        "sce_weight_pair_grid": sce_weight_pair_grid,
+        "kgnn_knn_sensitivity_grid": kgnn_knn_sensitivity_grid,
+        "kgnn_source_frr_grid": kgnn_source_frr_grid,
+        "sce_ip_guard_grid": sce_ip_guard_grid,
+        "sce_switch_threshold_grid": sce_switch_threshold_grid,
         "knn_k_list": knn_k_list,
         "knn_metrics": knn_metrics,
     }
     print(
-        "{run_id} {dataset} {protocol}: IP AUC={auc:.4f} AUOSC={auosc:.4f} H={h:.4f} FRR={frr:.4f}".format(
+        "{run_id} {dataset} {protocol}: KGNN AUC={auc:.4f} AUOSC={auosc:.4f} H={h:.4f} FRR={frr:.4f}".format(
             run_id=spec["run_id"],
             dataset=manifest["dataset"]["name"],
             protocol=protocol["name"],
@@ -699,8 +699,8 @@ def _run_one(
         "threshold_rows": threshold_rows,
         "blend_rows": blend_rows,
         "id_head_rows": id_head_rows,
-        "v50_rows": v50_rows,
-        "v51_rows": v51_rows,
+        "kgnn_v50_rows": kgnn_v50_rows,
+        "kgnn_rows": kgnn_rows,
         "selector_rows": selector_rows,
         "cache_manifest": {
             "run_id": spec["run_id"],
@@ -734,21 +734,21 @@ def _score_bank(
     train_labels = np.asarray(source_labels[train_idx], dtype=np.int64)
     val_embeddings = source_embeddings[val_idx]
     bank: dict[str, dict] = {
-        "ip_gate_v41": {
+        "kgnn_rejection": {
             "val_score": np.asarray(ip_val_score, dtype=np.float32),
             "eval_score": np.asarray(ip_eval_score, dtype=np.float32),
             "val_pred": logit_val_pred,
             "eval_pred": logit_eval_pred,
-            "family": "ip_gate",
+            "family": "kgnn",
         }
     }
     # Keep this key in sync with the deploy_score_bank exclusion above.
-    bank[IP_GATE_SUPPORT1_ID_KEY] = {
+    bank[KGNN_SUPPORT_ID_KEY] = {
         "val_score": np.asarray(ip_val_score, dtype=np.float32),
         "eval_score": np.asarray(ip_eval_score, dtype=np.float32),
         "val_pred": np.asarray(ip_val_support_pred, dtype=np.int64),
         "eval_pred": np.asarray(ip_eval_support_pred, dtype=np.int64),
-        "family": "ip_gate_id_head",
+        "family": "kgnn_id_head",
     }
     prototypes = np.stack(
         [np.mean(train_embeddings[train_labels == cls], axis=0) for cls in range(int(num_classes))],
@@ -781,10 +781,10 @@ def _score_bank(
     return bank
 
 
-def _ip_gate_id_head_bank(score_bank: dict[str, dict]) -> dict[str, dict]:
-    ip = score_bank["ip_gate_v41"]
+def _kgnn_id_head_bank(score_bank: dict[str, dict]) -> dict[str, dict]:
+    ip = score_bank["kgnn_rejection"]
     candidates = {
-        IP_GATE_SUPPORT1_ID_KEY: score_bank[IP_GATE_SUPPORT1_ID_KEY],
+        KGNN_SUPPORT_ID_KEY: score_bank[KGNN_SUPPORT_ID_KEY],
         "prototype_euclidean": score_bank["prototype_euclidean"],
     }
     for name in sorted(score_bank):
@@ -798,7 +798,7 @@ def _ip_gate_id_head_bank(score_bank: dict[str, dict]) -> dict[str, dict]:
             "eval_score": ip["eval_score"],
             "val_pred": payload["val_pred"],
             "eval_pred": payload["eval_pred"],
-            "family": "ip_gate_id_head_swap",
+            "family": "kgnn_id_head_swap",
             "aux_method": name,
         }
     return out
@@ -806,7 +806,7 @@ def _ip_gate_id_head_bank(score_bank: dict[str, dict]) -> dict[str, dict]:
 
 def _blend_bank(score_bank: dict[str, dict], *, aux_methods: list[str], alpha_grid: list[float]) -> dict[str, dict]:
     out: dict[str, dict] = {}
-    ip = score_bank["ip_gate_v41"]
+    ip = score_bank["kgnn_rejection"]
     ip_val_z, ip_eval_z = _source_z(ip["val_score"], ip["eval_score"])
     for aux_name in aux_methods:
         aux = score_bank[aux_name]
@@ -825,7 +825,7 @@ def _blend_bank(score_bank: dict[str, dict], *, aux_methods: list[str], alpha_gr
     return out
 
 
-def _v50_blend_nnid_bank(
+def _kgnn_v50_blend_bank(
     score_bank: dict[str, dict],
     *,
     train_embeddings: np.ndarray,
@@ -839,19 +839,19 @@ def _v50_blend_nnid_bank(
     if "knn_cosine_k5" not in score_bank:
         return {}
     out: dict[str, dict] = {}
-    ip = score_bank["ip_gate_v41"]
+    ip = score_bank["kgnn_rejection"]
     knn = score_bank["knn_cosine_k5"]
     ip_val_z, ip_eval_z = _source_z(ip["val_score"], ip["eval_score"])
     knn_val_z, knn_eval_z = _source_z(knn["val_score"], knn["eval_score"])
     for alpha in alpha_grid:
         tag = _alpha_tag(float(alpha))
-        method = f"v50_blend_ip_knn_cosine_k5_alpha{tag}_nnid"
+        method = f"kgnn_v50_blend_ip_knn_cosine_k5_alpha{tag}_nnid"
         out[method] = {
             "val_score": (float(alpha) * ip_val_z + (1.0 - float(alpha)) * knn_val_z).astype(np.float32),
             "eval_score": (float(alpha) * ip_eval_z + (1.0 - float(alpha)) * knn_eval_z).astype(np.float32),
             "val_pred": knn["val_pred"],
             "eval_pred": knn["eval_pred"],
-            "family": "v50_blend_nnid",
+            "family": "kgnn_v50_blend",
             "alpha": float(alpha),
             "aux_method": "knn_cosine_k5",
         }
@@ -873,13 +873,13 @@ def _v50_blend_nnid_bank(
     alpha_high = float(reliability_alpha_high)
     val_alpha = (alpha_high - (alpha_high - alpha_low) * val_reliability).astype(np.float32)
     eval_alpha = (alpha_high - (alpha_high - alpha_low) * eval_reliability).astype(np.float32)
-    method = f"v50_reliability_blend_ip_knn_cosine_k5_alpha{_alpha_tag(alpha_low)}_{_alpha_tag(alpha_high)}_nnid"
+    method = f"kgnn_v50_reliability_blend_ip_knn_cosine_k5_alpha{_alpha_tag(alpha_low)}_{_alpha_tag(alpha_high)}_nnid"
     out[method] = {
         "val_score": (val_alpha * ip_val_z + (1.0 - val_alpha) * knn_val_z).astype(np.float32),
         "eval_score": (eval_alpha * ip_eval_z + (1.0 - eval_alpha) * knn_eval_z).astype(np.float32),
         "val_pred": knn["val_pred"],
         "eval_pred": knn["eval_pred"],
-        "family": "v50_reliability_blend_nnid",
+        "family": "kgnn_v50_reliability_blend",
         "alpha": f"{alpha_low:.2f}-{alpha_high:.2f}",
         "aux_method": "knn_cosine_k5",
         "val_reliability_mean": float(np.mean(val_reliability)),
@@ -916,10 +916,10 @@ def _knn_vote_reliability(
     return np.clip(reliabilities, 0.0, 1.0).astype(np.float32)
 
 
-def _v51_adaptive_nnid_bank(
+def _kgnn_adaptive_bank(
     score_bank: dict[str, dict],
     *,
-    ip_model: IpGateModel,
+    kgnn_model: KgnnModel,
     source_embeddings: np.ndarray,
     source_labels: np.ndarray,
     train_idx: np.ndarray,
@@ -952,7 +952,7 @@ def _v51_adaptive_nnid_bank(
     if "knn_cosine_k5" not in score_bank:
         return {}
     out: dict[str, dict] = {}
-    ip = score_bank["ip_gate_v41"]
+    ip = score_bank["kgnn_rejection"]
     knn = score_bank["knn_cosine_k5"]
     ip_val_z, ip_eval_z = _source_z(ip["val_score"], ip["eval_score"])
     knn_val_z, knn_eval_z = _source_z(knn["val_score"], knn["eval_score"])
@@ -1021,13 +1021,13 @@ def _v51_adaptive_nnid_bank(
             "alpha": f"{row_low:.2f}-{row_high:.2f}",
             "aux_method": "knn_cosine_k5",
             "source_frr": float(source_frr if row_source_frr is None else row_source_frr),
-            "v51_alpha_low": row_low,
-            "v51_alpha_high": row_high,
-            "v51_source_frr": float(source_frr if row_source_frr is None else row_source_frr),
-            "v51_envelope_quantile": float(envelope_quantile),
-            "v51_envelope_max_mult": float(envelope_max_mult),
-            "v51_knn_metric": "cosine",
-            "v51_knn_k": 5,
+            "sce_weight_low": row_low,
+            "sce_weight_high": row_high,
+            "kgnn_source_frr": float(source_frr if row_source_frr is None else row_source_frr),
+            "sce_quantile": float(envelope_quantile),
+            "sce_max_mult": float(envelope_max_mult),
+            "kgnn_knn_metric": "cosine",
+            "kgnn_knn_k": 5,
             "val_reliability_mean": float(np.mean(val_rel)),
             "eval_reliability_mean": float(np.mean(eval_rel)),
         }
@@ -1037,25 +1037,25 @@ def _v51_adaptive_nnid_bank(
 
     prefix = f"alpha{_alpha_tag(alpha_low)}_{_alpha_tag(alpha_high)}"
     add_adaptive(
-        f"v51_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
+        f"kgnn_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
         val_margin_envelope,
         eval_margin_envelope,
-        "v51_margin_envelope_blend_nnid",
+        "kgnn_margin_envelope_blend",
     )
     add_adaptive(
-        f"v51_ipguard_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
+        f"kgnn_ipguard_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
         val_guarded,
         eval_guarded,
-        "v51_ipguard_margin_envelope_blend_nnid",
+        "kgnn_ipguard_blend",
     )
     val_switch_alpha = np.where(val_guarded >= float(switch_threshold), float(alpha_low), float(alpha_high)).astype(np.float32)
     eval_switch_alpha = np.where(eval_guarded >= float(switch_threshold), float(alpha_low), float(alpha_high)).astype(np.float32)
-    out[f"v51_hardswitch_ipguard_blend_ip_knn_cosine_k5_{prefix}_tau{_alpha_tag(switch_threshold)}_nnid"] = {
+    out[f"kgnn_hardswitch_ipguard_blend_ip_knn_cosine_k5_{prefix}_tau{_alpha_tag(switch_threshold)}_nnid"] = {
         "val_score": (val_switch_alpha * ip_val_z + (1.0 - val_switch_alpha) * knn_val_z).astype(np.float32),
         "eval_score": (eval_switch_alpha * ip_eval_z + (1.0 - eval_switch_alpha) * knn_eval_z).astype(np.float32),
         "val_pred": knn["val_pred"],
         "eval_pred": knn["eval_pred"],
-        "family": "v51_hardswitch_ipguard_blend_nnid",
+        "family": "kgnn_hardswitch_blend",
         "alpha": f"{alpha_low:.2f}-{alpha_high:.2f}",
         "aux_method": "knn_cosine_k5",
         "val_reliability_mean": float(np.mean(val_guarded)),
@@ -1067,51 +1067,51 @@ def _v51_adaptive_nnid_bank(
                 "no_vote",
                 np.clip(np.sqrt(val_center_margin) * val_envelope, 0.0, 1.0).astype(np.float32),
                 np.clip(np.sqrt(eval_center_margin) * eval_envelope, 0.0, 1.0).astype(np.float32),
-                "v51_no_vote_blend_nnid",
+                "kgnn_no_vote_blend",
             ),
             (
                 "no_center_margin",
                 np.clip(np.sqrt(val_vote) * val_envelope, 0.0, 1.0).astype(np.float32),
                 np.clip(np.sqrt(eval_vote) * eval_envelope, 0.0, 1.0).astype(np.float32),
-                "v51_no_center_margin_blend_nnid",
+                "kgnn_no_center_margin_blend",
             ),
             (
                 "no_vote_no_center_margin",
                 np.clip(val_envelope, 0.0, 1.0).astype(np.float32),
                 np.clip(eval_envelope, 0.0, 1.0).astype(np.float32),
-                "v51_no_vote_no_center_margin_blend_nnid",
+                "kgnn_envelope_only_blend",
             ),
             (
                 "no_class_envelope",
                 np.clip(np.sqrt(val_vote * val_center_margin), 0.0, 1.0).astype(np.float32),
                 np.clip(np.sqrt(eval_vote * eval_center_margin), 0.0, 1.0).astype(np.float32),
-                "v51_no_class_envelope_blend_nnid",
+                "kgnn_no_envelope_blend",
             ),
             (
                 "vote_only",
                 np.clip(val_vote, 0.0, 1.0).astype(np.float32),
                 np.clip(eval_vote, 0.0, 1.0).astype(np.float32),
-                "v51_vote_only_blend_nnid",
+                "kgnn_vote_only_blend",
             ),
         ]
         for mode, val_rel, eval_rel, family in component_rows:
             add_adaptive(
-                f"v51_{mode}_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_{mode}_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 val_rel,
                 eval_rel,
                 family,
-                extras={"v51_variant_role": f"component_{mode}"},
+                extras={"kgnn_variant_role": f"component_{mode}"},
             )
         add_adaptive(
-            f"v51_no_vote_no_center_margin_blend_ip_knn_cosine_k5_{prefix}_no_nnid",
+            f"kgnn_no_vote_no_center_margin_blend_ip_knn_cosine_k5_{prefix}_no_nnid",
             np.clip(val_envelope, 0.0, 1.0).astype(np.float32),
             np.clip(eval_envelope, 0.0, 1.0).astype(np.float32),
-            "v51_no_vote_no_center_margin_blend_no_nnid",
+            "kgnn_envelope_only_no_nnid",
             val_pred=ip["val_pred"],
             eval_pred=ip["eval_pred"],
             extras={
-                "v51_variant_role": "component_no_nnid",
-                "v51_id_head": "source_classifier_logit",
+                "kgnn_variant_role": "component_no_nnid",
+                "kgnn_id_head": "source_classifier_logit",
             },
         )
     if envelope_only_sensitivity:
@@ -1135,14 +1135,14 @@ def _v51_adaptive_nnid_bank(
                 max_mult=envelope_max_mult,
             )
             add_adaptive(
-                f"v51_envonly_sens_q{_alpha_tag(q)}_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_envonly_sens_q{_alpha_tag(q)}_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 np.clip(q_val_envelope, 0.0, 1.0).astype(np.float32),
                 np.clip(q_eval_envelope, 0.0, 1.0).astype(np.float32),
-                "v51_envelope_only_sensitivity_q",
+                "kgnn_sce_sensitivity_q",
                 extras={
-                    "v51_variant_role": "envelope_only_sensitivity",
-                    "v51_sensitivity_axis": "class_envelope_quantile",
-                    "v51_envelope_quantile": float(q),
+                    "kgnn_variant_role": "envelope_only_sensitivity",
+                    "kgnn_sensitivity_axis": "class_envelope_quantile",
+                    "sce_quantile": float(q),
                 },
             )
         for max_mult_value in sorted(set(float(value) for value in envelope_max_mult_grid)):
@@ -1165,14 +1165,14 @@ def _v51_adaptive_nnid_bank(
                 max_mult=max_mult_value,
             )
             add_adaptive(
-                f"v51_envonly_sens_envmax{_alpha_tag(max_mult_value)}_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_envonly_sens_envmax{_alpha_tag(max_mult_value)}_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 np.clip(m_val_envelope, 0.0, 1.0).astype(np.float32),
                 np.clip(m_eval_envelope, 0.0, 1.0).astype(np.float32),
-                "v51_envelope_only_sensitivity_envelope_max_mult",
+                "kgnn_sce_sensitivity_max_mult",
                 extras={
-                    "v51_variant_role": "envelope_only_sensitivity",
-                    "v51_sensitivity_axis": "class_envelope_max_mult",
-                    "v51_envelope_max_mult": float(max_mult_value),
+                    "kgnn_variant_role": "envelope_only_sensitivity",
+                    "kgnn_sensitivity_axis": "class_envelope_max_mult",
+                    "sce_max_mult": float(max_mult_value),
                 },
             )
     if sensitivity_grid:
@@ -1198,14 +1198,14 @@ def _v51_adaptive_nnid_bank(
             q_val_rel = np.clip(np.sqrt(val_vote * q_val_margin) * q_val_envelope, 0.0, 1.0).astype(np.float32)
             q_eval_rel = np.clip(np.sqrt(eval_vote * q_eval_margin) * q_eval_envelope, 0.0, 1.0).astype(np.float32)
             add_adaptive(
-                f"v51_sens_q{_alpha_tag(q)}_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_sens_q{_alpha_tag(q)}_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 q_val_rel,
                 q_eval_rel,
-                "v51_sensitivity_q",
+                "kgnn_sensitivity_q",
                 extras={
-                    "v51_variant_role": "sensitivity",
-                    "v51_sensitivity_axis": "envelope_quantile",
-                    "v51_envelope_quantile": float(q),
+                    "kgnn_variant_role": "sensitivity",
+                    "kgnn_sensitivity_axis": "envelope_quantile",
+                    "sce_quantile": float(q),
                 },
             )
         for max_mult_value in sorted(set(float(value) for value in envelope_max_mult_grid)):
@@ -1230,39 +1230,39 @@ def _v51_adaptive_nnid_bank(
             m_val_rel = np.clip(np.sqrt(val_vote * m_val_margin) * m_val_envelope, 0.0, 1.0).astype(np.float32)
             m_eval_rel = np.clip(np.sqrt(eval_vote * m_eval_margin) * m_eval_envelope, 0.0, 1.0).astype(np.float32)
             add_adaptive(
-                f"v51_sens_envmax{_alpha_tag(max_mult_value)}_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_sens_envmax{_alpha_tag(max_mult_value)}_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 m_val_rel,
                 m_eval_rel,
-                "v51_sensitivity_envelope_max_mult",
+                "kgnn_sensitivity_max_mult",
                 extras={
-                    "v51_variant_role": "sensitivity",
-                    "v51_sensitivity_axis": "envelope_max_mult",
-                    "v51_envelope_max_mult": float(max_mult_value),
+                    "kgnn_variant_role": "sensitivity",
+                    "kgnn_sensitivity_axis": "envelope_max_mult",
+                    "sce_max_mult": float(max_mult_value),
                 },
             )
         for low, high in sorted(set((float(low), float(high)) for low, high in alpha_pair_grid)):
             add_adaptive(
-                f"v51_sens_alpha{_alpha_tag(low)}_{_alpha_tag(high)}_margin_envelope_blend_ip_knn_cosine_k5_nnid",
+                f"kgnn_sens_alpha{_alpha_tag(low)}_{_alpha_tag(high)}_margin_envelope_blend_ip_knn_cosine_k5_nnid",
                 val_margin_envelope,
                 eval_margin_envelope,
-                "v51_sensitivity_alpha_endpoints",
+                "kgnn_sensitivity_alpha",
                 low=low,
                 high=high,
                 extras={
-                    "v51_variant_role": "sensitivity",
-                    "v51_sensitivity_axis": "alpha_endpoints",
+                    "kgnn_variant_role": "sensitivity",
+                    "kgnn_sensitivity_axis": "alpha_endpoints",
                 },
             )
         for row_frr in sorted(set(float(value) for value in source_frr_grid)):
             add_adaptive(
-                f"v51_sens_frr{_frr_tag(row_frr)}_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_sens_frr{_frr_tag(row_frr)}_margin_envelope_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 val_margin_envelope,
                 eval_margin_envelope,
-                "v51_sensitivity_source_frr",
+                "kgnn_sensitivity_frr",
                 row_source_frr=row_frr,
                 extras={
-                    "v51_variant_role": "sensitivity",
-                    "v51_sensitivity_axis": "source_frr",
+                    "kgnn_variant_role": "sensitivity",
+                    "kgnn_sensitivity_axis": "source_frr",
                 },
             )
         for metric, k in sorted(set((str(metric), int(k)) for metric, k in knn_sensitivity_grid)):
@@ -1309,24 +1309,24 @@ def _v51_adaptive_nnid_bank(
             sens_high = float(alpha_high)
             sens_val_alpha = (sens_high - (sens_high - sens_low) * sens_val_rel).astype(np.float32)
             sens_eval_alpha = (sens_high - (sens_high - sens_low) * sens_eval_rel).astype(np.float32)
-            out[f"v51_sens_knn_{metric}_k{int(k)}_margin_envelope_blend_ip_{method}_{prefix}_nnid"] = {
+            out[f"kgnn_sens_knn_{metric}_k{int(k)}_margin_envelope_blend_ip_{method}_{prefix}_nnid"] = {
                 "val_score": (sens_val_alpha * ip_val_z + (1.0 - sens_val_alpha) * sens_knn_val_z).astype(np.float32),
                 "eval_score": (sens_eval_alpha * ip_eval_z + (1.0 - sens_eval_alpha) * sens_knn_eval_z).astype(np.float32),
                 "val_pred": sens_knn["val_pred"],
                 "eval_pred": sens_knn["eval_pred"],
-                "family": "v51_sensitivity_knn",
+                "family": "kgnn_sensitivity_knn",
                 "alpha": f"{sens_low:.2f}-{sens_high:.2f}",
                 "aux_method": method,
                 "source_frr": float(source_frr),
-                "v51_variant_role": "sensitivity",
-                "v51_sensitivity_axis": "knn",
-                "v51_alpha_low": sens_low,
-                "v51_alpha_high": sens_high,
-                "v51_source_frr": float(source_frr),
-                "v51_envelope_quantile": float(envelope_quantile),
-                "v51_envelope_max_mult": float(envelope_max_mult),
-                "v51_knn_metric": metric,
-                "v51_knn_k": int(k),
+                "kgnn_variant_role": "sensitivity",
+                "kgnn_sensitivity_axis": "knn",
+                "sce_weight_low": sens_low,
+                "sce_weight_high": sens_high,
+                "kgnn_source_frr": float(source_frr),
+                "sce_quantile": float(envelope_quantile),
+                "sce_max_mult": float(envelope_max_mult),
+                "kgnn_knn_metric": metric,
+                "kgnn_knn_k": int(k),
                 "val_reliability_mean": float(np.mean(sens_val_rel)),
                 "eval_reliability_mean": float(np.mean(sens_eval_rel)),
             }
@@ -1336,13 +1336,13 @@ def _v51_adaptive_nnid_bank(
             sens_val_guarded = np.clip(val_margin_envelope * val_known, 0.0, 1.0).astype(np.float32)
             sens_eval_guarded = np.clip(eval_margin_envelope * eval_known, 0.0, 1.0).astype(np.float32)
             add_adaptive(
-                f"v51_sens_ipguard{_alpha_tag(low_z)}_{_alpha_tag(high_z)}_blend_ip_knn_cosine_k5_{prefix}_nnid",
+                f"kgnn_sens_ipguard{_alpha_tag(low_z)}_{_alpha_tag(high_z)}_blend_ip_knn_cosine_k5_{prefix}_nnid",
                 sens_val_guarded,
                 sens_eval_guarded,
-                "v51_sensitivity_ip_guard",
+                "kgnn_sensitivity_ip_guard",
                 extras={
-                    "v51_variant_role": "sensitivity",
-                    "v51_sensitivity_axis": "ip_guard",
+                    "kgnn_variant_role": "sensitivity",
+                    "kgnn_sensitivity_axis": "ip_guard",
                     "v51_ip_z_low": float(low_z),
                     "v51_ip_z_high": float(high_z),
                 },
@@ -1350,31 +1350,31 @@ def _v51_adaptive_nnid_bank(
         for tau in sorted(set(float(value) for value in switch_threshold_grid)):
             sens_val_switch_alpha = np.where(val_guarded >= tau, float(alpha_low), float(alpha_high)).astype(np.float32)
             sens_eval_switch_alpha = np.where(eval_guarded >= tau, float(alpha_low), float(alpha_high)).astype(np.float32)
-            out[f"v51_sens_tau{_alpha_tag(tau)}_hardswitch_ipguard_blend_ip_knn_cosine_k5_{prefix}_nnid"] = {
+            out[f"kgnn_sens_tau{_alpha_tag(tau)}_hardswitch_ipguard_blend_ip_knn_cosine_k5_{prefix}_nnid"] = {
                 "val_score": (sens_val_switch_alpha * ip_val_z + (1.0 - sens_val_switch_alpha) * knn_val_z).astype(np.float32),
                 "eval_score": (sens_eval_switch_alpha * ip_eval_z + (1.0 - sens_eval_switch_alpha) * knn_eval_z).astype(np.float32),
                 "val_pred": knn["val_pred"],
                 "eval_pred": knn["eval_pred"],
-                "family": "v51_sensitivity_hard_switch_tau",
+                "family": "kgnn_sensitivity_hard_switch",
                 "alpha": f"{alpha_low:.2f}-{alpha_high:.2f}",
                 "aux_method": "knn_cosine_k5",
                 "source_frr": float(source_frr),
-                "v51_variant_role": "sensitivity",
-                "v51_sensitivity_axis": "hard_switch_tau",
-                "v51_alpha_low": float(alpha_low),
-                "v51_alpha_high": float(alpha_high),
-                "v51_source_frr": float(source_frr),
-                "v51_envelope_quantile": float(envelope_quantile),
-                "v51_envelope_max_mult": float(envelope_max_mult),
-                "v51_knn_metric": "cosine",
-                "v51_knn_k": 5,
+                "kgnn_variant_role": "sensitivity",
+                "kgnn_sensitivity_axis": "hard_switch_tau",
+                "sce_weight_low": float(alpha_low),
+                "sce_weight_high": float(alpha_high),
+                "kgnn_source_frr": float(source_frr),
+                "sce_quantile": float(envelope_quantile),
+                "sce_max_mult": float(envelope_max_mult),
+                "kgnn_knn_metric": "cosine",
+                "kgnn_knn_k": 5,
                 "v51_switch_threshold": float(tau),
                 "val_reliability_mean": float(np.mean(val_guarded)),
                 "eval_reliability_mean": float(np.mean(eval_guarded)),
             }
-    selected = _v51_source_select_alpha_payload(
+    selected = _kgnn_source_select_payload(
         score_bank,
-        ip_model=ip_model,
+        kgnn_model=kgnn_model,
         source_embeddings=source_embeddings,
         source_labels=source_labels,
         train_idx=train_idx,
@@ -1384,7 +1384,7 @@ def _v51_adaptive_nnid_bank(
         source_frr=source_frr,
     )
     if selected:
-        out["v51_source_selector_alpha_nnid"] = selected
+        out["kgnn_source_selector"] = selected
     return out
 
 
@@ -1447,10 +1447,10 @@ def _ip_knownness_from_z(z: np.ndarray, *, low: float, high: float) -> np.ndarra
     return np.clip((float(high) - z) / denom, 0.0, 1.0).astype(np.float32)
 
 
-def _v51_source_select_alpha_payload(
+def _kgnn_source_select_payload(
     score_bank: dict[str, dict],
     *,
-    ip_model: IpGateModel,
+    kgnn_model: KgnnModel,
     source_embeddings: np.ndarray,
     source_labels: np.ndarray,
     train_idx: np.ndarray,
@@ -1461,7 +1461,7 @@ def _v51_source_select_alpha_payload(
 ) -> dict:
     if "knn_cosine_k5" not in score_bank:
         return {}
-    ip = score_bank["ip_gate_v41"]
+    ip = score_bank["kgnn_rejection"]
     knn = score_bank["knn_cosine_k5"]
     ip_val_z, ip_eval_z = _source_z(ip["val_score"], ip["eval_score"])
     knn_val_z, knn_eval_z = _source_z(knn["val_score"], knn["eval_score"])
@@ -1478,10 +1478,10 @@ def _v51_source_select_alpha_payload(
         query = val_embeddings[mask]
         ip_pseudo.append(
             _loo_score(
-                method="ip_gate_v41",
+                method="kgnn_rejection",
                 query_embeddings=query,
                 holdout_class=cls,
-                ip_model=ip_model,
+                kgnn_model=kgnn_model,
                 train_embeddings=train_embeddings,
                 train_labels=train_labels,
                 num_classes=num_classes,
@@ -1492,7 +1492,7 @@ def _v51_source_select_alpha_payload(
                 method="knn_cosine_k5",
                 query_embeddings=query,
                 holdout_class=cls,
-                ip_model=ip_model,
+                kgnn_model=kgnn_model,
                 train_embeddings=train_embeddings,
                 train_labels=train_labels,
                 num_classes=num_classes,
@@ -1539,7 +1539,7 @@ def _v51_source_select_alpha_payload(
         "eval_score": best["eval_score"],
         "val_pred": knn["val_pred"],
         "eval_pred": knn["eval_pred"],
-        "family": "v51_source_selector_alpha_nnid",
+        "family": "kgnn_source_selector",
         "alpha": float(best["alpha"]),
         "aux_method": "knn_cosine_k5",
         "selected_alpha": float(best["alpha"]),
@@ -1552,7 +1552,7 @@ def _source_selector_rows(
     *,
     common: dict,
     score_bank: dict[str, dict],
-    ip_model: IpGateModel,
+    kgnn_model: KgnnModel,
     source_embeddings: np.ndarray,
     source_labels: np.ndarray,
     train_idx: np.ndarray,
@@ -1577,7 +1577,7 @@ def _source_selector_rows(
                     method=method,
                     query_embeddings=query,
                     holdout_class=cls,
-                    ip_model=ip_model,
+                    kgnn_model=kgnn_model,
                     train_embeddings=train_embeddings,
                     train_labels=train_labels,
                     num_classes=num_classes,
@@ -1591,9 +1591,9 @@ def _source_selector_rows(
             continue
         alpha = float(payload["alpha"])
         aux_name = str(payload["aux_method"])
-        ip_unk = np.concatenate(pseudo_unknown["ip_gate_v41"], axis=0)
+        ip_unk = np.concatenate(pseudo_unknown["kgnn_rejection"], axis=0)
         aux_unk = np.concatenate(pseudo_unknown[aux_name], axis=0)
-        ip_stats = _stats(score_bank["ip_gate_v41"]["val_score"])
+        ip_stats = _stats(score_bank["kgnn_rejection"]["val_score"])
         aux_stats = _stats(score_bank[aux_name]["val_score"])
         pseudo_unknown[method].append(
             (
@@ -1684,13 +1684,13 @@ def _loo_score(
     method: str,
     query_embeddings: np.ndarray,
     holdout_class: int,
-    ip_model: IpGateModel,
+    kgnn_model: KgnnModel,
     train_embeddings: np.ndarray,
     train_labels: np.ndarray,
     num_classes: int,
 ) -> np.ndarray:
-    if method == "ip_gate_v41":
-        return _ip_gate_loo_score(ip_model, query_embeddings, holdout_class)
+    if method == "kgnn_rejection":
+        return _kgnn_loo_score(kgnn_model, query_embeddings, holdout_class)
     if method == "prototype_euclidean":
         keep_classes = [cls for cls in range(int(num_classes)) if cls != int(holdout_class)]
         prototypes = np.stack(
@@ -1714,7 +1714,7 @@ def _loo_score(
     raise KeyError(method)
 
 
-def _ip_gate_loo_score(model: IpGateModel, embeddings: np.ndarray, holdout_class: int) -> np.ndarray:
+def _kgnn_loo_score(model: KgnnModel, embeddings: np.ndarray, holdout_class: int) -> np.ndarray:
     support_keep = model.support_labels != int(holdout_class)
     support = model.support_embeddings[support_keep]
     if support.shape[0] == 0:
@@ -1779,7 +1779,7 @@ def _gate_summary(summary: list[dict]) -> list[dict]:
         deltas = []
         row = {"method": method}
         for dataset in datasets:
-            base = by_dataset_method.get((dataset, "ip_gate_v41"))
+            base = by_dataset_method.get((dataset, "kgnn_rejection"))
             cand = by_dataset_method.get((dataset, method))
             if not base or not cand:
                 continue
@@ -1831,7 +1831,7 @@ def _threshold_gate_summary(summary: list[dict]) -> list[dict]:
         deltas = []
         row = {"method": method}
         for dataset in datasets:
-            base = by_dataset_method.get((dataset, "ip_gate_v41"))
+            base = by_dataset_method.get((dataset, "kgnn_rejection"))
             cand = by_dataset_method.get((dataset, method))
             if not base or not cand:
                 continue

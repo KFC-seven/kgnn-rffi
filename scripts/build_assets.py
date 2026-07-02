@@ -23,9 +23,9 @@ V51_M2_PER_RUN = ROOT / "results" / "v51_main" / "per_run.csv"
 V51_MISSING_PER_RUN = ROOT / "results" / "v51_ablation" / "per_run.csv"
 EFFICIENCY_CSV = ROOT / "results" / "efficiency" / "efficiency_profile_summary.csv"
 COMPONENT_SUMMARY_CSV = ROOT / "results" / "v51_component_summary_by_dataset.csv"
-SIMPLIFIED_MAIN_CSV = ROOT / "results" / "v51_simplified_main_comparison_by_dataset.csv"
-ENVELOPE_SENSITIVITY_CSV = ROOT / "results" / "v51_envelope_only_sensitivity_summary_by_axis_dataset.csv"
-K_SENSITIVITY_CSV = ROOT / "results" / "v47_full_ablation_ksens_kgrid_by_dataset.csv"
+SIMPLIFIED_MAIN_CSV = ROOT / "results" / "kgnn_main_comparison_by_dataset.csv"
+ENVELOPE_SENSITIVITY_CSV = ROOT / "results" / "kgnn_sce_sensitivity_summary_by_axis_dataset.csv"
+K_SENSITIVITY_CSV = ROOT / "results" / "kgnn_kgrid_sensitivity_by_dataset.csv"
 
 OUT_DIR = ROOT / "results" / "assets"
 DATA_DIR = OUT_DIR / "data"
@@ -431,7 +431,7 @@ def load_mechanism_rows() -> pd.DataFrame:
     default_key = V51_CLASS_ENVELOPE_ONLY_KEY
     simpler_key = "IP-GATE-NN-ID"
     no_envelope_key = "v51_no_class_envelope_blend_ip_knn_cosine_k5_alpha0p50_0p95_nnid"
-    fixed_blend_key = "v51_source_selector_alpha_nnid"
+    fixed_blend_key = "kgnn_source_selector"
     hard_switch_key = "v51_hardswitch_ipguard_blend_ip_knn_cosine_k5_alpha0p50_0p95_tau0p55_nnid"
 
     component_rows = []

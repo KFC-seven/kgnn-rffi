@@ -1,6 +1,6 @@
 """KGNN-RFFI: Knownness-Gated Nearest Neighbor RF Fingerprint Identification."""
 
-from .envelope import IpGateModel, build_ip_gate_model, predict_ip_gate
+from .envelope import KgnnModel, build_kgnn_model, predict_kgnn
 from .perturbation import (
     PerturbationSafetyResult,
     PerturbationSpec,
@@ -12,15 +12,15 @@ from .perturbation import (
 from .phantom import PerturbationConfig, PerturbationEngine
 
 __all__ = [
-    "IpGateModel",
+    "KgnnModel",
     "PerturbationConfig",
     "PerturbationEngine",
     "PerturbationSafetyResult",
     "PerturbationSpec",
     "apply_perturbation_batch",
-    "build_ip_gate_model",
+    "build_kgnn_model",
     "classify_perturbation_safety",
     "default_perturbation_specs",
-    "predict_ip_gate",
+    "predict_kgnn",
     "select_specs",
 ]
