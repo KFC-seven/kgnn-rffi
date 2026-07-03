@@ -32,18 +32,18 @@ from kgnn.utils import _configure_torch_determinism, _resolve_device, _select_pr
 # ── Protocol definitions ──
 ALL_RUNS = [
     # ManySig (tiny CNN, 100 samples/record, 64-dim)
-    ("S_RX9-3_TX4-2",  "configs/manysig_soda4.yaml", "RX9-3_TX4-2",  "tiny",     5, 100, 64),
-    ("S_RX9-3_TX2-4",  "configs/manysig_soda4.yaml", "RX9-3_TX2-4",  "tiny",     5, 100, 64),
-    ("S_RX6-6_TX3-3",  "configs/manysig_soda4.yaml", "RX6-6_TX3-3",  "tiny",     5, 100, 64),
-    ("S_RX3-9_TX2-4",  "configs/manysig_soda4.yaml", "RX3-9_TX2-4",  "tiny",     5, 100, 64),
+    ("S_RX9-3_TX4-2",  "configs/manysig_soda4.yaml", "RX9-3_TX4-2",  "tiny",     100, 100, 64),
+    ("S_RX9-3_TX2-4",  "configs/manysig_soda4.yaml", "RX9-3_TX2-4",  "tiny",     100, 100, 64),
+    ("S_RX6-6_TX3-3",  "configs/manysig_soda4.yaml", "RX6-6_TX3-3",  "tiny",     100, 100, 64),
+    ("S_RX3-9_TX2-4",  "configs/manysig_soda4.yaml", "RX3-9_TX2-4",  "tiny",     100, 100, 64),
     # ManyTx (ResNet1D, 30 samples/record, 128-dim)
-    ("T_RX9-3_TX40-40","configs/manytx_owen_v0.yaml","MTX_RX9-3_TX40-40","resnet1d",5, 30,  128),
-    ("T_RX6-6_TX40-40","configs/manytx_owen_v0.yaml","MTX_RX6-6_TX40-40","resnet1d",5, 30,  128),
-    ("T_RX9-3_TX20-20","configs/manytx_owen_v0.yaml","MTX_RX9-3_TX20-20","resnet1d",5, 30,  128),
-    ("T_RX6-6_TX20-20","configs/manytx_owen_v0.yaml","MTX_RX6-6_TX20-20","resnet1d",5, 30,  128),
-    ("T_RX9-3_TX20-40","configs/manytx_owen_v0.yaml","MTX_RX9-3_TX20-40","resnet1d",5, 30,  128),
-    ("T_RX6-6_TX20-40","configs/manytx_owen_v0.yaml","MTX_RX6-6_TX20-40","resnet1d",5, 30,  128),
-    ("T_RX3-9_TX20-80","configs/manytx_owen_v0.yaml","MTX_RX3-9_TX20-80","resnet1d",5, 30,  128),
+    ("T_RX9-3_TX40-40","configs/manytx_owen_v0.yaml","MTX_RX9-3_TX40-40","resnet1d",100, 30,  128),
+    ("T_RX6-6_TX40-40","configs/manytx_owen_v0.yaml","MTX_RX6-6_TX40-40","resnet1d",100, 30,  128),
+    ("T_RX9-3_TX20-20","configs/manytx_owen_v0.yaml","MTX_RX9-3_TX20-20","resnet1d",100, 30,  128),
+    ("T_RX6-6_TX20-20","configs/manytx_owen_v0.yaml","MTX_RX6-6_TX20-20","resnet1d",100, 30,  128),
+    ("T_RX9-3_TX20-40","configs/manytx_owen_v0.yaml","MTX_RX9-3_TX20-40","resnet1d",100, 30,  128),
+    ("T_RX6-6_TX20-40","configs/manytx_owen_v0.yaml","MTX_RX6-6_TX20-40","resnet1d",100, 30,  128),
+    ("T_RX3-9_TX20-80","configs/manytx_owen_v0.yaml","MTX_RX3-9_TX20-80","resnet1d",100, 30,  128),
 ]
 
 METRIC_COLS = [

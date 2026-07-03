@@ -114,6 +114,7 @@ def main() -> int:
     parser.add_argument("--v50-reliability-alpha-low", type=float, default=0.50)
     parser.add_argument("--v50-reliability-alpha-high", type=float, default=0.90)
     parser.add_argument("--enable-kgnn", action="store_true")
+    parser.add_argument("--kgnn-v50-weight-grid", default="0.50,0.75,0.90,0.95")
     parser.add_argument("--sce-weight-grid", default="0.50,0.75,0.90,0.95")
     parser.add_argument("--sce-weight-low", type=float, default=0.50)
     parser.add_argument("--sce-weight-high", type=float, default=0.95)
@@ -413,6 +414,25 @@ def _run_one(
     logit_val_pred = np.argmax(source_logits[val_idx], axis=1).astype(np.int64)
     logit_eval_pred = np.argmax(eval_logits, axis=1).astype(np.int64)
 
+    # PureRatio: d_K/d_D with source-val percentile threshold
+    def _cos_dist_matrix(query, bank):
+        q_n = query / (np.linalg.norm(query, axis=1, keepdims=True) + 1e-8)
+        b_n = bank / (np.linalg.norm(bank, axis=1, keepdims=True) + 1e-8)
+        return 1.0 - q_n @ b_n.T
+
+    rk_emb = kgnn_model.support_embeddings
+    rd_emb = kgnn_model.destructive_embeddings
+    dk_val = _cos_dist_matrix(val_embeddings, rk_emb).min(axis=1)
+    dd_val = _cos_dist_matrix(val_embeddings, rd_emb).min(axis=1)
+    ratio_val = dk_val / np.maximum(dd_val, 1e-8)
+    dk_eval = _cos_dist_matrix(eval_embeddings, rk_emb).min(axis=1)
+    dd_eval = _cos_dist_matrix(eval_embeddings, rd_emb).min(axis=1)
+    ratio_eval = dk_eval / np.maximum(dd_eval, 1e-8)
+    pct = 100.0 * (1.0 - float(args.source_frr))
+    pure_ratio_thresh = np.percentile(ratio_val, pct)
+    pure_val_rejected = ratio_val > pure_ratio_thresh
+    pure_eval_rejected = ratio_eval > pure_ratio_thresh
+
     score_bank = _score_bank(
         source_embeddings=source_embeddings,
         eval_embeddings=eval_embeddings,
@@ -428,6 +448,10 @@ def _run_one(
         ip_eval_support_pred=ip_eval_support_pred,
         knn_k_list=knn_k_list,
         knn_metrics=knn_metrics,
+        pure_ratio_val_score=ratio_val,
+        pure_ratio_eval_score=ratio_eval,
+        pure_val_rejected=pure_val_rejected,
+        pure_eval_rejected=pure_eval_rejected,
     )
     deploy_score_bank = {
         name: payload
@@ -558,7 +582,7 @@ def _run_one(
                 )
             )
     kgnn_rows = []
-    if bool(getattr(args, "enable_v51_variants", False)):
+    if bool(getattr(args, "enable_kgnn", False)):
         for method, payload in _kgnn_adaptive_bank(
             score_bank,
             kgnn_model=kgnn_model,
@@ -580,8 +604,8 @@ def _run_one(
             ip_z_low=float(args.sce_ip_z_low),
             ip_z_high=float(args.sce_ip_z_high),
             source_frr=float(args.source_frr),
-            component_ablations=bool(getattr(args, "enable_v51_component_ablations", False)),
-            sensitivity_grid=bool(getattr(args, "enable_v51_sensitivity_grid", False)),
+            component_ablations=bool(getattr(args, "enable_kgnn_ablations", False)),
+            sensitivity_grid=bool(getattr(args, "enable_kgnn_sensitivity", False)),
             envelope_only_sensitivity=bool(getattr(args, "sce_sensitivity", False)),
             envelope_quantile_grid=sce_quantile_grid,
             envelope_max_mult_grid=sce_max_mult_grid,
@@ -662,15 +686,15 @@ def _run_one(
         "kgnn_v50_weight_grid": kgnn_v50_weight_grid,
         "v50_reliability_alpha_low": float(args.v50_reliability_alpha_low),
         "v50_reliability_alpha_high": float(args.v50_reliability_alpha_high),
-        "kgnn_enabled": bool(getattr(args, "enable_v51_variants", False)),
+        "kgnn_enabled": bool(getattr(args, "enable_kgnn", False)),
         "sce_weight_grid": sce_weight_grid,
         "sce_weight_low": float(args.sce_weight_low),
         "sce_weight_high": float(args.sce_weight_high),
         "v51_switch_threshold": float(args.sce_switch_threshold),
         "sce_quantile": float(args.sce_quantile),
         "sce_max_mult": float(args.sce_max_mult),
-        "kgnn_ablations": bool(getattr(args, "enable_v51_component_ablations", False)),
-        "kgnn_sensitivity": bool(getattr(args, "enable_v51_sensitivity_grid", False)),
+        "kgnn_ablations": bool(getattr(args, "enable_kgnn_ablations", False)),
+        "kgnn_sensitivity": bool(getattr(args, "enable_kgnn_sensitivity", False)),
         "sce_sensitivity": bool(getattr(args, "sce_sensitivity", False)),
         "sce_quantile_grid": sce_quantile_grid,
         "sce_max_mult_grid": sce_max_mult_grid,
@@ -729,6 +753,10 @@ def _score_bank(
     ip_eval_support_pred: np.ndarray,
     knn_k_list: list[int],
     knn_metrics: list[str],
+    pure_ratio_val_score: np.ndarray | None = None,
+    pure_ratio_eval_score: np.ndarray | None = None,
+    pure_val_rejected: np.ndarray | None = None,
+    pure_eval_rejected: np.ndarray | None = None,
 ) -> dict[str, dict]:
     train_embeddings = source_embeddings[train_idx]
     train_labels = np.asarray(source_labels[train_idx], dtype=np.int64)
@@ -742,6 +770,14 @@ def _score_bank(
             "family": "kgnn",
         }
     }
+    if pure_ratio_eval_score is not None:
+        bank["pure_ratio"] = {
+            "val_score": np.asarray(pure_ratio_val_score, dtype=np.float32),
+            "eval_score": np.asarray(pure_ratio_eval_score, dtype=np.float32),
+            "val_pred": logit_val_pred,
+            "eval_pred": logit_eval_pred,
+            "family": "pure_ratio",
+        }
     # Keep this key in sync with the deploy_score_bank exclusion above.
     bank[KGNN_SUPPORT_ID_KEY] = {
         "val_score": np.asarray(ip_val_score, dtype=np.float32),
@@ -1711,6 +1747,8 @@ def _loo_score(
             k=k,
             metric=metric,
         ).scores
+    if method in ("kgnn_rejection", "pure_ratio"):
+        return _kgnn_loo_score(kgnn_model, query_embeddings, holdout_class)
     raise KeyError(method)
 
 
