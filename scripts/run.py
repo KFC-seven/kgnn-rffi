@@ -125,6 +125,8 @@ def main() -> int:
     parser.add_argument("--sce-ip-z-high", type=float, default=1.0)
     parser.add_argument("--enable-kgnn-ablations", action="store_true")
     parser.add_argument("--enable-kgnn-sensitivity", action="store_true")
+    parser.add_argument("--no-dpr", action="store_true",
+                        help="Use source-only R_K (no perturbation augmentation).")
     parser.add_argument("--sce-sensitivity", action="store_true")
     parser.add_argument("--sce-quantile-grid", default="0.80,0.85,0.90,0.95,0.975")
     parser.add_argument("--sce-max-mult-grid", default="1.25,1.50,1.75,2.00")
@@ -379,6 +381,7 @@ def _run_one(
     )
     safe_specs = select_specs(safety_results, "safe")
     destructive_specs = select_specs(safety_results, "destructive")
+    no_dpr = bool(getattr(args, "no_dpr", False))
     kgnn_model, ip_info = build_kgnn_model(
         encoder=train_result.model,
         source_x=source.x,
@@ -386,18 +389,18 @@ def _run_one(
         train_indices=train_idx,
         val_indices=val_idx,
         num_classes=num_classes,
-        safe_specs=safe_specs,
-        destructive_specs=destructive_specs,
+        safe_specs=[] if no_dpr else safe_specs,
+        destructive_specs=[] if no_dpr else destructive_specs,
         perturbation_engine=perturb,
-        augment_count=4,
+        augment_count=0 if no_dpr else 4,
         sigma_mult=0.3,
         max_support_per_class=1000,
-        max_destructive_bank=5000,
-        destructive_per_sample=1,
+        max_destructive_bank=0 if no_dpr else 5000,
+        destructive_per_sample=0 if no_dpr else 1,
         batch_size=args.batch_size,
         device=device,
         distance="cosine",
-        score_mode="ratio",
+        score_mode="known" if no_dpr else "ratio",
         support_k=1,
         destructive_k=1,
         class_norm_alpha=1.0,
@@ -423,11 +426,15 @@ def _run_one(
     rk_emb = kgnn_model.support_embeddings
     rd_emb = kgnn_model.destructive_embeddings
     dk_val = _cos_dist_matrix(val_embeddings, rk_emb).min(axis=1)
-    dd_val = _cos_dist_matrix(val_embeddings, rd_emb).min(axis=1)
-    ratio_val = dk_val / np.maximum(dd_val, 1e-8)
     dk_eval = _cos_dist_matrix(eval_embeddings, rk_emb).min(axis=1)
-    dd_eval = _cos_dist_matrix(eval_embeddings, rd_emb).min(axis=1)
-    ratio_eval = dk_eval / np.maximum(dd_eval, 1e-8)
+    if rd_emb.shape[0] > 0:
+        dd_val = _cos_dist_matrix(val_embeddings, rd_emb).min(axis=1)
+        dd_eval = _cos_dist_matrix(eval_embeddings, rd_emb).min(axis=1)
+        ratio_val = dk_val / np.maximum(dd_val, 1e-8)
+        ratio_eval = dk_eval / np.maximum(dd_eval, 1e-8)
+    else:
+        ratio_val = dk_val
+        ratio_eval = dk_eval
     pct = 100.0 * (1.0 - float(args.source_frr))
     pure_ratio_thresh = np.percentile(ratio_val, pct)
     pure_val_rejected = ratio_val > pure_ratio_thresh
