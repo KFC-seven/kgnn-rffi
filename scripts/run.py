@@ -821,6 +821,36 @@ def _score_bank(
                 "eval_pred": ev.predicted_label,
                 "family": "auxiliary",
             }
+
+    # NNDR: Nearest Neighbor Distance Ratio (Mendes Júnior et al., MLJ 2017)
+    # R = d(query, t) / d(query, u)  where t=nearest, u=nearest with different class
+    from sklearn.neighbors import NearestNeighbors as NNSearch
+    nndr_nn = NNSearch(n_neighbors=min(100, int(train_embeddings.shape[0])), metric="cosine")
+    nndr_nn.fit(train_embeddings.astype(np.float32))
+    train_labels_flat = np.asarray(train_labels, dtype=np.int64).reshape(-1)
+
+    def _nndr_scores(query_embeddings):
+        dist, idx = nndr_nn.kneighbors(query_embeddings.astype(np.float32))
+        first_label = train_labels_flat[idx[:, 0]]
+        first_dist = dist[:, 0].astype(np.float32)
+        second_dist = np.full(query_embeddings.shape[0], np.inf, dtype=np.float32)
+        for i in range(query_embeddings.shape[0]):
+            for j in range(1, idx.shape[1]):
+                if train_labels_flat[idx[i, j]] != first_label[i]:
+                    second_dist[i] = dist[i, j]
+                    break
+        ratio = first_dist / np.maximum(second_dist, 1e-8)
+        return ratio.astype(np.float32), first_label.astype(np.int64)
+
+    nndr_val_score, nndr_val_pred = _nndr_scores(val_embeddings)
+    nndr_eval_score, nndr_eval_pred = _nndr_scores(eval_embeddings)
+    bank["nndr"] = {
+        "val_score": nndr_val_score,
+        "eval_score": nndr_eval_score,
+        "val_pred": nndr_val_pred,
+        "eval_pred": nndr_eval_pred,
+        "family": "baseline",
+    }
     return bank
 
 
@@ -1756,6 +1786,23 @@ def _loo_score(
         ).scores
     if method in ("kgnn_rejection", "pure_ratio"):
         return _kgnn_loo_score(kgnn_model, query_embeddings, holdout_class)
+    if method == "nndr":
+        keep = train_labels != int(holdout_class)
+        sub_embeddings = train_embeddings[keep].astype(np.float32)
+        sub_labels = np.asarray(train_labels[keep], dtype=np.int64).reshape(-1)
+        from sklearn.neighbors import NearestNeighbors as NNSearchLOO
+        nndr_nn = NNSearchLOO(n_neighbors=min(100, int(sub_embeddings.shape[0])), metric="cosine")
+        nndr_nn.fit(sub_embeddings)
+        dist, idx = nndr_nn.kneighbors(query_embeddings.astype(np.float32))
+        first_label = sub_labels[idx[:, 0]]
+        first_dist = dist[:, 0].astype(np.float32)
+        second_dist = np.full(query_embeddings.shape[0], np.inf, dtype=np.float32)
+        for i in range(query_embeddings.shape[0]):
+            for j in range(1, idx.shape[1]):
+                if sub_labels[idx[i, j]] != first_label[i]:
+                    second_dist[i] = dist[i, j]
+                    break
+        return (first_dist / np.maximum(second_dist, 1e-8)).astype(np.float32)
     raise KeyError(method)
 
 
