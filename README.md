@@ -8,13 +8,15 @@ DPR-RFFI identifies enrolled radio transmitters while rejecting signals from tra
 
 The release uses the same names and definitions as the paper.
 
-- **Dual Perturbation Reference (DPR)** evaluates 52 RF perturbation settings with the perturbation retention score
+- **Dual Perturbation References (DPR)** evaluates 52 RF perturbation settings with the perturbation retention score
 
   \[
   \eta_p=\frac{A_p-1/K}{\max(A_0-1/K,\epsilon_A)}.
   \]
 
-  Settings with \(\eta_p\geq0.90\) form the low-impact pool, settings with \(\eta_p<0.50\) form the high-impact pool, and the remaining settings are neutral. DPR compares a received feature with the resulting global low-impact and high-impact reference sets.
+  Settings with \(\eta_p\geq0.90\) form the low-impact pool, settings with \(\eta_p<0.50\) form the high-impact pool, and the remaining settings are neutral. The low-impact reference set retains clean source features from every enrolled transmitter and perturbed features that remain close to their original transmitter's source center relative to its within-class scale. High-impact perturbations provide a classification-degrading contrast and are not treated as pseudo-unknown devices.
+
+  DPR computes the distance from a received feature to each global reference set and divides the low-impact distance by the high-impact distance. The global low-impact set retains a nonempty subset for every enrolled transmitter, while the score itself does not require a candidate-class prediction.
 
 - **Class-Consistency Assessment (CCA)** measures whether a received feature remains within the source region of its nearest-neighbor candidate class. It maps that consistency to a sample-specific DPR weight between 0.50 and 0.95.
 
@@ -121,7 +123,7 @@ DPR-RFFI/
 ## Reproducibility notes
 
 - Every reference sampling operation is seeded.
-- The low-impact reference set prioritizes original source features and is capped at 1,000 features per enrolled class.
+- The low-impact reference set prioritizes original source features, retains a nonempty subset for every enrolled transmitter, and is capped at 1,000 features per enrolled class.
 - The high-impact reference set is global and capped at 5,000 features.
 - If no setting satisfies the high-impact criterion, DPR reduces to the low-impact reference distance, as specified in the paper.
 - Numerical floors are \(10^{-6}\).
