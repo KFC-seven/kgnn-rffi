@@ -1,110 +1,143 @@
 # DPR-RFFI
 
-**Dual Perturbation References for Open-Set RF Fingerprint Identification under Domain Shift**
+Official implementation of **DPR-RFFI: Dual Perturbation References for Open-Set RF Fingerprint Identification under Domain Shift**.
 
-Code release accompanying the DPR-RFFI manuscript.
+DPR-RFFI identifies enrolled radio transmitters while rejecting signals from transmitters that are absent during source training. Training, perturbation screening, reference construction, score standardization, and threshold calibration use source data only.
 
-## Overview
+## Method
 
-DPR-RFFI addresses open-set radio frequency fingerprint identification under domain shift. It must identify signals from enrolled devices while rejecting signals from devices that were not represented during training.
+The release uses the same names and definitions as the paper.
 
-The method contains two complementary components:
+- **Dual Perturbation Reference (DPR)** evaluates 52 RF perturbation settings with the perturbation retention score
 
-1. **Dual Perturbation Reference (DPR)** screens RF perturbations according to their effect on source-domain classification, constructs low-impact and high-impact reference sets, and uses their distance ratio as relative rejection evidence.
-2. **Class-Consistency Assessment (CCA)** evaluates a received sample against the source region of its nearest-neighbor class and regulates the contribution of source-memory evidence to the final decision.
+  \[
+  \eta_p=\frac{A_p-1/K}{\max(A_0-1/K,\epsilon_A)}.
+  \]
 
-Samples accepted by the resulting score are assigned to enrolled devices through nearest-neighbor voting. All model training, perturbation screening, score normalization, and threshold calibration use source-domain data only.
+  Settings with \(\eta_p\geq0.90\) form the low-impact pool, settings with \(\eta_p<0.50\) form the high-impact pool, and the remaining settings are neutral. DPR compares a received feature with the resulting global low-impact and high-impact reference sets.
 
-## Implementation Naming
+- **Class-Consistency Assessment (CCA)** measures whether a received feature remains within the source region of its nearest-neighbor candidate class. It maps that consistency to a sample-specific DPR weight between 0.50 and 0.95.
 
-The implementation was developed before the paper-facing DPR-RFFI terminology was finalized. To preserve the submitted experiment commands and configuration compatibility, the Python package name `kgnn` and legacy command-line flags such as `--enable-kgnn` and `--sce-*` remain unchanged.
+- Accepted samples are identified by five-neighbor cosine voting. The rejection threshold is calibrated to a source-validation false-rejection budget of 0.03.
 
-The corresponding manuscript terms are:
+There is no compatibility layer for earlier package names or historical screening rules. The current repository is the paper-facing implementation.
 
-| Implementation name | Manuscript term |
-|---|---|
-| safe or identity-preserving perturbation | low-impact perturbation |
-| destructive or identity-disrupting perturbation | high-impact perturbation |
-| source class envelope or SCE gate | Class-Consistency Assessment (CCA) |
-| ratio score `u_p` | DPR score |
+## Installation
 
-These are naming differences and do not change the implemented inference procedure.
-
-## Requirements
-
-Python 3.10+, PyTorch 2.0+, and the dependencies in `requirements.txt` are required.
+Python 3.10 or later is required.
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+.venv/Scripts/activate
+pip install -e ".[test,plot]"
+pytest
 ```
+
+On Linux or macOS, activate the environment with `source .venv/bin/activate`.
 
 ## Data
 
-The experiments use the public [WiSig](https://cores.ee.ucla.edu/downloads/) dataset. Download the dataset and place it under a `data/` directory, then update the paths in `configs/` for the local environment.
+The experiments use equalized IEEE 802.11 preamble I/Q samples from the public WiSig ManySig and ManyTx collections. Download WiSig from the dataset provider, convert it to the compact structure described in [docs/DATA.md](docs/DATA.md), and place the files at:
 
-## Quick Start
-
-The following command runs DPR-RFFI on one ManyTx protocol. The legacy flag names are retained for reproducibility.
-
-```bash
-python scripts/run.py \
-  --run "demo|configs/manytx_owen_v0.yaml|MTX_RX9-3_TX20-20|1|resnet1d|5|30|128" \
-  --enable-kgnn \
-  --sce-sensitivity \
-  --output-dir results/demo
+```text
+data/ManySig.pkl
+data/ManyTx.pkl
 ```
 
-Key parameters are listed below.
+Local paths can also be supplied with `--data`; no repository file needs to be edited.
 
-| Parameter | Default | Description |
-|---|---:|---|
-| `--sce-quantile` | 0.90 | CCA source-class quantile $q$ |
-| `--sce-max-mult` | 1.75 | CCA expansion factor $\lambda$ |
-| `--sce-weight-low` | 0.50 | DPR weight inside the source class region |
-| `--sce-weight-high` | 0.95 | DPR weight outside the expanded source class region |
-| `--source-frr` | 0.03 | Source-validation false-rejection budget $\rho_s$ |
-| `--safe-accuracy` | 0.90 | Low-impact perturbation screening threshold |
-| `--destructive-accuracy` | 0.50 | High-impact perturbation screening threshold |
+## Run one protocol
 
-All parameter settings are fixed before target evaluation. Target labels, target-domain statistics, and unlabeled target batches are not used for parameter selection.
+ManySig:
 
-## Repository Structure
+```bash
+python scripts/run_protocol.py \
+  --config configs/manysig.yaml \
+  --data /path/to/ManySig.pkl \
+  --protocol RX9-3_TX2-4 \
+  --split 1 \
+  --architecture tiny \
+  --embedding-dim 64 \
+  --epochs 100 \
+  --max-samples-per-record 100 \
+  --output outputs/manysig_rx9-3_tx2-4_split1.json
+```
+
+ManyTx:
+
+```bash
+python scripts/run_protocol.py \
+  --config configs/manytx.yaml \
+  --data /path/to/ManyTx.pkl \
+  --protocol MTX_RX9-3_TX20-20 \
+  --split 1 \
+  --architecture resnet1d \
+  --embedding-dim 128 \
+  --epochs 100 \
+  --max-samples-per-record 30 \
+  --output outputs/manytx_rx9-3_tx20-20_split1.json
+```
+
+The output records the source-only calibration flag, source validation result, reference-set sizes, and all reported open-set metrics.
+
+## Run the paper matrix
+
+The paper contains four ManySig protocols and seven ManyTx protocols with three splits each, for 33 DPR-RFFI runs:
+
+```bash
+python scripts/run_paper_matrix.py \
+  --manysig-data /path/to/ManySig.pkl \
+  --manytx-data /path/to/ManyTx.pkl \
+  --output-dir outputs/paper
+```
+
+## Baselines
+
+The repository includes the implementations used for Energy, kNN, NNDR, OpenMax, OpenSVDD, HyperRSI, MeDAE, and OSSEI. The shared-score methods are in `dpr_rffi/baselines/posthoc.py`; the trainable RFFI baselines have separate modules under `dpr_rffi/baselines/`. [docs/BASELINES.md](docs/BASELINES.md) lists their public entry points and the source-validation calibration rule.
+
+The four methods that share the source classifier can be run together with `scripts/run_shared_baselines.py`. OpenSVDD, HyperRSI, MeDAE, and OSSEI use their method-specific training entry points listed in the baseline guide.
+
+All methods must use the same protocol split and calibrate their own rejection threshold from source validation scores. Target labels are evaluation-only.
+
+## Repository layout
 
 ```text
 DPR-RFFI/
-├── kgnn/                    # Core DPR-RFFI implementation
-│   ├── envelope.py          # CCA and adaptive score composition
-│   ├── perturbation.py      # RF perturbations and source-based screening
-│   ├── phantom.py           # RF perturbation engine
-│   ├── metrics.py           # Open-set recognition metrics
-│   └── baselines/           # Baseline implementations
-├── diagnostic/              # Dataset and source-only training pipeline
-├── scripts/
-│   ├── run.py               # Main experiment runner
-│   └── build_assets.py      # Table and figure generation
-├── configs/                 # ManySig and ManyTx configurations
-├── results/                 # Experiment outputs
-├── requirements.txt
+├── dpr_rffi/
+│   ├── model.py              # DPR reference construction, CCA, and inference
+│   ├── screening.py          # Perturbation retention score and role assignment
+│   ├── perturbations.py      # 52 paper perturbations
+│   ├── training.py           # ManySig and ManyTx source encoders
+│   ├── metrics.py            # H-score, OSCR, AUROC, rejection, ACC, and FRR
+│   ├── data/                 # WiSig loading and deterministic protocol splits
+│   └── baselines/            # Paper baseline implementations
+├── configs/                  # ManySig and ManyTx protocols
+├── scripts/                  # Single-run and 33-run orchestration
+├── tests/                    # Unit and end-to-end synthetic tests
+├── pyproject.toml
 └── LICENSE
 ```
 
-## Reproducing the Paper Evaluation
+## Reproducibility notes
 
-The complete evaluation contains 12 ManySig runs and 21 ManyTx runs across 11 protocols and three splits. The experiment runner supports the main method, component ablations, parameter sensitivity, and the paper baselines.
-
-The included baselines are Energy, kNN, NNDR, OSSEI, HyperRSI, MeDAE, OpenSVDD, and OpenMax. All methods use the same protocol splits and source-validation operating-point calibration. Each method calibrates its own score threshold because their score spaces are not numerically interchangeable.
+- Every reference sampling operation is seeded.
+- The low-impact reference set prioritizes original source features and is capped at 1,000 features per enrolled class.
+- The high-impact reference set is global and capped at 5,000 features.
+- If no setting satisfies the high-impact criterion, DPR reduces to the low-impact reference distance, as specified in the paper.
+- Numerical floors are \(10^{-6}\).
+- The code never reads target labels during fitting or threshold calibration.
 
 ## Citation
 
 ```bibtex
 @article{zhong2026dprrffi,
-  title={DPR-RFFI: Dual Perturbation References for Open-Set RF Fingerprint Identification under Domain Shift},
-  author={Zhong, Yuan and Li, Dongming},
-  year={2026},
-  note={Under review}
+  title   = {DPR-RFFI: Dual Perturbation References for Open-Set RF Fingerprint Identification under Domain Shift},
+  author  = {Zhong, Yuan and Li, Dongming},
+  year    = {2026},
+  note    = {Under review}
 }
 ```
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,26 @@
+{
+  "dataset": {
+    "name": "ManyTx",
+    "path": "data/ManyTx.pkl"
+  },
+  "dates": {
+    "source": "2021_03_15",
+    "day_shift": "2021_03_01"
+  },
+  "required_equalized": [0, 1],
+  "filter": {
+    "min_samples_per_triple": 30,
+    "tx_pool_size": 100,
+    "rx_pool_size": 12
+  },
+  "tx_split_repeats": 3,
+  "protocols": [
+    {"name": "MTX_RX9-3_TX40-40", "source_rx_count": 9, "drift_rx_count": 3, "known_tx_count": 40, "unknown_tx_count": 40, "seed": 5201},
+    {"name": "MTX_RX6-6_TX40-40", "source_rx_count": 6, "drift_rx_count": 6, "known_tx_count": 40, "unknown_tx_count": 40, "seed": 5202},
+    {"name": "MTX_RX9-3_TX20-20", "source_rx_count": 9, "drift_rx_count": 3, "known_tx_count": 20, "unknown_tx_count": 20, "seed": 5301},
+    {"name": "MTX_RX6-6_TX20-20", "source_rx_count": 6, "drift_rx_count": 6, "known_tx_count": 20, "unknown_tx_count": 20, "seed": 5302},
+    {"name": "MTX_RX9-3_TX20-40", "source_rx_count": 9, "drift_rx_count": 3, "known_tx_count": 20, "unknown_tx_count": 40, "seed": 5311},
+    {"name": "MTX_RX6-6_TX20-40", "source_rx_count": 6, "drift_rx_count": 6, "known_tx_count": 20, "unknown_tx_count": 40, "seed": 5312},
+    {"name": "MTX_RX3-9_TX20-80", "source_rx_count": 3, "drift_rx_count": 9, "known_tx_count": 20, "unknown_tx_count": 80, "seed": 5203}
+  ]
+}
