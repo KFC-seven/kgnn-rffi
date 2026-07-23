@@ -104,8 +104,9 @@ def harmonic_mean(a: float, b: float) -> float:
 def _area(x: np.ndarray, y: np.ndarray) -> float:
     if x.size < 2:
         return 0.0
-    integrate = getattr(np, "trapezoid", np.trapz)
-    return float(integrate(y, x))
+    if hasattr(np, "trapezoid"):
+        return float(np.trapezoid(y, x))
+    return float(np.trapz(y, x))
 
 
 def _safe_auroc(y_true: np.ndarray, score: np.ndarray) -> float:
